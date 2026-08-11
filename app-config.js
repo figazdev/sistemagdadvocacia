@@ -3,7 +3,7 @@ export const appConfig = {
   organizationName: "GD Advocacia",
 
   // Conta temporária de demonstração.
-  bootstrapAdminEmail: "demo.gd.advocacia@example.com",
+  bootstrapAdminEmail: "figueiredovmfp@gmail.com",
 
   initialSeatLimit: 10,
   nextSeatLimit: 20,
