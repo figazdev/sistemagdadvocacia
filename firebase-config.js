@@ -1,5 +1,5 @@
 export const firebaseConfig = {
-  apiKey: "AIzaSyAQoiEDLpILfrWZ0zw19Nrd4e1SnxsnuI",
+  apiKey: "AIzaSyAQohiEDLpLIfrWZ0zw19Nrd4e1SnxsnuI",
   authDomain: "gd-advocacia-sistema.firebaseapp.com",
   projectId: "gd-advocacia-sistema",
   storageBucket: "gd-advocacia-sistema.firebasestorage.app",
