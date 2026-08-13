@@ -1045,6 +1045,99 @@ select option{color:#3c332d;background:#f4efeb}
 @media print{
   .history-document-modal{display:none!important}
 }
+
+/* ===== SAÍDA MÓVEL / COMPARTILHAMENTO ===== */
+.mobile-output-modal{
+  position:fixed;
+  inset:0;
+  z-index:3300;
+  display:grid;
+  place-items:center;
+  padding:18px;
+}
+.mobile-output-modal.hidden{display:none!important}
+.mobile-output-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(36,29,24,.62);
+  backdrop-filter:blur(5px);
+  -webkit-backdrop-filter:blur(5px);
+}
+.mobile-output-panel{
+  position:relative;
+  z-index:1;
+  width:min(520px,100%);
+  padding:24px;
+  border-radius:24px;
+}
+.mobile-output-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+}
+.mobile-output-icon{
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  border-radius:15px;
+  background:rgba(117,94,75,.10);
+  color:var(--primary);
+  font-size:1.35rem;
+  font-weight:900;
+}
+.mobile-output-copy{
+  flex:1;
+}
+.mobile-output-copy h2{
+  margin:2px 0 7px;
+  color:var(--text);
+  font-size:1.2rem;
+}
+.mobile-output-copy p{
+  margin:0;
+  color:var(--muted);
+  font-size:.82rem;
+  line-height:1.5;
+}
+.mobile-output-status{
+  margin-top:17px;
+  padding:12px 13px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:rgba(255,255,255,.38);
+  color:var(--muted);
+  font-size:.78rem;
+  line-height:1.45;
+}
+.mobile-output-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:18px;
+}
+.mobile-output-actions .btn{
+  min-height:48px;
+}
+.mobile-output-actions .full{
+  grid-column:1/-1;
+}
+.mobile-output-actions .hidden{
+  display:none!important;
+}
+@media(max-width:560px){
+  .mobile-output-modal{padding:10px}
+  .mobile-output-panel{padding:20px}
+  .mobile-output-actions{grid-template-columns:1fr}
+  .mobile-output-actions .full{grid-column:auto}
+}
+@media print{
+  .mobile-output-modal{display:none!important}
+}
+/* ===== FIM SAÍDA MÓVEL ===== */
+
 /* ===== FIM MODAIS ===== */
 
 /* ===== FIM CONTROLE DE ACESSOS ===== */
@@ -1495,6 +1588,38 @@ select option{color:#3c332d;background:#f4efeb}
     <div class="upgrade-modal-actions">
       <button class="btn btn-secondary" type="button" data-close-upgrade-modal>Agora não</button>
       <a id="upgradeWhatsappButton" class="btn btn-whatsapp upgrade-whatsapp" target="_blank" rel="noopener">Solicitar pelo WhatsApp</a>
+    </div>
+  </div>
+</div>
+
+
+<div id="mobileOutputModal" class="mobile-output-modal hidden" role="dialog" aria-modal="true" aria-labelledby="mobileOutputTitle">
+  <div class="mobile-output-backdrop" data-close-mobile-output></div>
+  <div class="mobile-output-panel glass">
+    <div class="mobile-output-head">
+      <div class="mobile-output-icon" id="mobileOutputIcon">↗</div>
+      <div class="mobile-output-copy">
+        <span class="modal-kicker" id="mobileOutputKicker">PDF PRONTO</span>
+        <h2 id="mobileOutputTitle">Documento pronto</h2>
+        <p id="mobileOutputText">O PDF já foi preparado.</p>
+      </div>
+      <button class="modal-x" type="button" aria-label="Fechar" data-close-mobile-output>×</button>
+    </div>
+
+    <div class="mobile-output-status" id="mobileOutputStatus">
+      Toque no botão abaixo para continuar.
+    </div>
+
+    <div class="mobile-output-actions">
+      <button class="btn btn-primary full" type="button" id="mobileOutputPrimaryBtn">
+        Compartilhar PDF
+      </button>
+      <button class="btn btn-secondary" type="button" id="mobileOutputPdfBtn">
+        Abrir PDF
+      </button>
+      <button class="btn btn-whatsapp hidden" type="button" id="mobileOutputWhatsappBtn">
+        Abrir WhatsApp
+      </button>
     </div>
   </div>
 </div>
@@ -2914,49 +3039,98 @@ document.addEventListener("keydown",event=>{
 
 initializeFirebase();
 
-async function createPdfFile(){
+
+function sanitizePdfFilename(value){
+ const normalized=String(value||"procuracao")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g,"")
+  .replace(/[^a-zA-Z0-9 _-]/g,"")
+  .trim()
+  .replace(/\s+/g,"-");
+ return `${normalized||"procuracao"}.pdf`;
+}
+
+function shouldUseLetterhead(){
+ return document.getElementById("printLetterhead")?.checked!==false;
+}
+
+function isMobileOrTablet(){
+ const ua=navigator.userAgent||"";
+ const mobileUa=/Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+ const touchTablet=(navigator.maxTouchPoints||0)>1 && Math.min(screen.width||0,screen.height||0)<=1024;
+ return mobileUa||touchTablet;
+}
+
+async function createPdfFile({useLetterhead=shouldUseLetterhead()}={}){
  flushRender();
  if(!window.html2canvas||!window.jspdf)throw new Error("Bibliotecas de PDF indisponíveis");
+
  const paper=document.getElementById("paper");
  const scaleBox=document.getElementById("previewScale");
+ if(!paper||!scaleBox)throw new Error("Área do documento não encontrada.");
+
  const oldTransform=scaleBox.style.transform;
  const oldTransition=scaleBox.style.transition;
  const oldWidth=paper.style.width;
  const oldMinHeight=paper.style.minHeight;
+ const oldBackground=paper.style.background;
+ const oldBackgroundImage=paper.style.backgroundImage;
 
- // Remove somente o redimensionamento visual da prévia durante a captura.
- scaleBox.style.transition="none";
- scaleBox.style.transform="none";
- paper.style.width="794px";
- paper.style.minHeight="1123px";
+ let canvas;
 
- await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+ try{
+  // Remove somente o redimensionamento visual da prévia durante a captura.
+  scaleBox.style.transition="none";
+  scaleBox.style.transform="none";
+  paper.style.width="794px";
+  paper.style.minHeight="1123px";
 
- const canvas=await html2canvas(paper,{
-  scale:2,
-  backgroundColor:"#ffffff",
-  useCORS:true,
-  logging:false,
-  width:794,
-  height:1123,
-  windowWidth:794,
-  windowHeight:1123,
-  scrollX:0,
-  scrollY:0
- });
+  // Quando o escritório usar papel timbrado físico, o PDF sai com fundo branco.
+  if(!useLetterhead){
+   paper.style.background="#ffffff";
+   paper.style.backgroundImage="none";
+  }
 
- scaleBox.style.transform=oldTransform;
- scaleBox.style.transition=oldTransition;
- paper.style.width=oldWidth;
- paper.style.minHeight=oldMinHeight;
- scheduleFitPreview();
+  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 
- const img=canvas.toDataURL("image/jpeg",0.98);
+  canvas=await html2canvas(paper,{
+   scale:2,
+   backgroundColor:"#ffffff",
+   useCORS:true,
+   logging:false,
+   width:794,
+   height:1123,
+   windowWidth:794,
+   windowHeight:1123,
+   scrollX:0,
+   scrollY:0
+  });
+ }finally{
+  scaleBox.style.transform=oldTransform;
+  scaleBox.style.transition=oldTransition;
+  paper.style.width=oldWidth;
+  paper.style.minHeight=oldMinHeight;
+  paper.style.background=oldBackground;
+  paper.style.backgroundImage=oldBackgroundImage;
+  scheduleFitPreview();
+ }
+
+ if(!canvas)throw new Error("Não foi possível montar o PDF.");
+
+ const img=canvas.toDataURL("image/jpeg",0.96);
  const {jsPDF}=window.jspdf;
  const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4",compress:true});
  pdf.addImage(img,"JPEG",0,0,210,297,undefined,"FAST");
+
+ const d=getData();
+ const filename=sanitizePdfFilename(d.nome?`procuracao-${d.nome}`:"procuracao");
  const blob=pdf.output("blob");
- return {file:new File([blob],"procuracao.pdf",{type:"application/pdf"}),pdf};
+
+ return {
+  file:new File([blob],filename,{type:"application/pdf"}),
+  pdf,
+  blob
+ };
 }
 
 function extractPaperBackgroundImage(){
@@ -2972,7 +3146,7 @@ async function preparePrintStage(){
  const stage=document.getElementById("printStage");
  if(!source||!stage)throw new Error("Área de impressão não encontrada.");
 
- const useLetterhead=document.getElementById("printLetterhead")?.checked!==false;
+ const useLetterhead=shouldUseLetterhead();
  const clone=source.cloneNode(true);
  clone.id="printPaper";
  clone.classList.add("print-paper");
@@ -3011,16 +3185,182 @@ function cleanupPrintStage(){
  }
 }
 
+let preparedMobileOutput=null;
+
+function releasePreparedMobileOutput(){
+ if(preparedMobileOutput?.url){
+  try{URL.revokeObjectURL(preparedMobileOutput.url);}catch(_){}
+ }
+ preparedMobileOutput=null;
+}
+
+function canSharePreparedFile(file){
+ try{
+  return !!(
+   navigator.share &&
+   navigator.canShare &&
+   navigator.canShare({files:[file]})
+  );
+ }catch(_){
+  return false;
+ }
+}
+
+function closeMobileOutputModal(){
+ const modal=document.getElementById("mobileOutputModal");
+ if(modal)modal.classList.add("hidden");
+ releasePreparedMobileOutput();
+}
+
+function openPreparedPdf(){
+ if(!preparedMobileOutput?.url)return;
+ const link=document.createElement("a");
+ link.href=preparedMobileOutput.url;
+ link.target="_blank";
+ link.rel="noopener";
+ document.body.appendChild(link);
+ link.click();
+ link.remove();
+}
+
+function downloadPreparedPdf(){
+ if(!preparedMobileOutput?.url||!preparedMobileOutput?.file)return;
+ const link=document.createElement("a");
+ link.href=preparedMobileOutput.url;
+ link.download=preparedMobileOutput.file.name||"procuracao.pdf";
+ document.body.appendChild(link);
+ link.click();
+ link.remove();
+}
+
+function openWhatsappFallback(){
+ const text="Segue a procuração em PDF. O arquivo já foi preparado; se necessário, anexe-o manualmente.";
+ const url="https://wa.me/?text="+encodeURIComponent(text);
+ const opened=window.open(url,"_blank","noopener");
+ if(!opened)window.location.href=url;
+}
+
+function showMobileOutputModal(file,intent){
+ releasePreparedMobileOutput();
+
+ const url=URL.createObjectURL(file);
+ const nativeShare=canSharePreparedFile(file);
+
+ preparedMobileOutput={file,intent,url,nativeShare};
+
+ const modal=document.getElementById("mobileOutputModal");
+ const kicker=document.getElementById("mobileOutputKicker");
+ const title=document.getElementById("mobileOutputTitle");
+ const text=document.getElementById("mobileOutputText");
+ const status=document.getElementById("mobileOutputStatus");
+ const primary=document.getElementById("mobileOutputPrimaryBtn");
+ const pdfBtn=document.getElementById("mobileOutputPdfBtn");
+ const whatsappBtn=document.getElementById("mobileOutputWhatsappBtn");
+ const icon=document.getElementById("mobileOutputIcon");
+
+ whatsappBtn.classList.add("hidden");
+ pdfBtn.classList.remove("hidden");
+
+ if(intent==="print"){
+  kicker.textContent="PDF PRONTO";
+  title.textContent="Imprimir ou salvar o documento";
+  text.textContent="O PDF foi preparado com a opção de papel timbrado que você selecionou.";
+  icon.textContent="↗";
+
+  if(nativeShare){
+   primary.textContent="Compartilhar / Imprimir";
+   status.textContent="No iPhone ou iPad, toque em “Compartilhar / Imprimir” e escolha Imprimir, Salvar em Arquivos ou outro destino.";
+  }else{
+   primary.textContent="Abrir PDF";
+   status.textContent="Abra o PDF e use as opções do navegador para imprimir ou salvar.";
+   pdfBtn.classList.add("hidden");
+  }
+ }else{
+  kicker.textContent="WHATSAPP";
+  title.textContent="PDF pronto para compartilhar";
+  text.textContent="O documento já foi convertido em PDF.";
+  icon.textContent="↗";
+
+  if(nativeShare){
+   primary.textContent="Compartilhar PDF";
+   status.textContent="Toque em “Compartilhar PDF” e escolha o WhatsApp na tela de compartilhamento do celular.";
+  }else{
+   primary.textContent="Baixar PDF";
+   status.textContent="Este navegador não permite anexar o PDF diretamente. Baixe o arquivo e depois abra o WhatsApp para anexá-lo.";
+   whatsappBtn.classList.remove("hidden");
+  }
+ }
+
+ modal.classList.remove("hidden");
+}
+
+function runPrimaryMobileOutputAction(){
+ const item=preparedMobileOutput;
+ if(!item)return;
+
+ // IMPORTANTE: navigator.share é chamado imediatamente neste segundo clique,
+ // sem await/processamento antes dele, preservando a ativação do usuário.
+ if(item.nativeShare){
+  const payload={
+   title:"Procuração",
+   text:item.intent==="whatsapp"?"Segue a procuração em PDF.":"Procuração em PDF.",
+   files:[item.file]
+  };
+
+  navigator.share(payload)
+   .then(()=>closeMobileOutputModal())
+   .catch(error=>{
+    if(error?.name!=="AbortError"){
+     console.error("Falha no compartilhamento nativo:",error);
+     toast("Não foi possível abrir o compartilhamento. Tente Abrir PDF.");
+    }
+   });
+  return;
+ }
+
+ if(item.intent==="whatsapp"){
+  downloadPreparedPdf();
+  toast("PDF preparado. Agora abra o WhatsApp e anexe o arquivo.");
+ }else{
+  openPreparedPdf();
+ }
+}
+
+document.getElementById("mobileOutputPrimaryBtn").addEventListener("click",runPrimaryMobileOutputAction);
+document.getElementById("mobileOutputPdfBtn").addEventListener("click",openPreparedPdf);
+document.getElementById("mobileOutputWhatsappBtn").addEventListener("click",openWhatsappFallback);
+
+document.querySelectorAll("[data-close-mobile-output]").forEach(element=>{
+ element.addEventListener("click",closeMobileOutputModal);
+});
+
+document.addEventListener("keydown",event=>{
+ if(event.key==="Escape")closeMobileOutputModal();
+});
+
 document.getElementById("printBtn").onclick=async()=>{
  const btn=document.getElementById("printBtn");
  let previousTitle=document.title;
+
  try{
   btn.disabled=true;
-  btn.textContent="Abrindo impressão...";
   flushRender();
 
   const d=getData();
   const client=(d.nome||"Procuração").trim();
+
+  // Em smartphone/tablet, gera primeiro o PDF e só depois oferece
+  // a ação nativa em um segundo toque confiável.
+  if(isMobileOrTablet()){
+   btn.textContent="Preparando PDF...";
+   const {file}=await createPdfFile({useLetterhead:shouldUseLetterhead()});
+   await registerGeneratedDocument("Impressão/PDF");
+   showMobileOutputModal(file,"print");
+   return;
+  }
+
+  // Desktop: mantém a caixa de impressão nativa do navegador.
+  btn.textContent="Abrindo impressão...";
   previousTitle=document.title;
   document.title=client?`Procuração - ${client}`:"Procuração";
 
@@ -3040,7 +3380,7 @@ document.getElementById("printBtn").onclick=async()=>{
   console.error(e);
   document.title=previousTitle;
   cleanupPrintStage();
-  toast("Não foi possível abrir a caixa de impressão.");
+  toast("Não foi possível preparar a impressão.");
  }finally{
   btn.disabled=false;
   btn.textContent="Imprimir/Salvar PDF";
@@ -3049,19 +3389,24 @@ document.getElementById("printBtn").onclick=async()=>{
 
 document.getElementById("whatsappBtn").onclick=async()=>{
  const btn=document.getElementById("whatsappBtn");
+
  try{
-  btn.disabled=true; btn.textContent="Preparando PDF...";
-  const {file}=await createPdfFile();
+  btn.disabled=true;
+  btn.textContent="Preparando PDF...";
+
+  const {file}=await createPdfFile({useLetterhead:shouldUseLetterhead()});
   await registerGeneratedDocument("WhatsApp");
-  if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
-   await navigator.share({title:"Procuração",text:"Segue a procuração em PDF.",files:[file]});
-  }else{
-   const url="https://wa.me/?text="+encodeURIComponent("Segue a procuração em PDF. Caso o anexo não seja enviado automaticamente, salve o PDF e anexe manualmente.");
-   window.open(url,"_blank");
-   toast("O WhatsApp foi aberto. Se necessário, anexe o PDF manualmente.");
-  }
- }catch(e){toast("Não foi possível compartilhar. Use Imprimir/Salvar PDF e anexe o arquivo no WhatsApp.");}
- finally{btn.disabled=false; btn.textContent="Enviar pelo WhatsApp";}
+
+  // O arquivo fica pronto antes. O compartilhamento só é chamado
+  // no clique seguinte dentro do modal, eliminando a perda do gesto do usuário.
+  showMobileOutputModal(file,"whatsapp");
+ }catch(e){
+  console.error(e);
+  toast("Não foi possível preparar o PDF para o WhatsApp.");
+ }finally{
+  btn.disabled=false;
+  btn.textContent="Enviar pelo WhatsApp";
+ }
 };
 
 render();
